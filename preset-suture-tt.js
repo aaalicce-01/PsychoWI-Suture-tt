@@ -9,7 +9,7 @@
   function __wiCompareVer(a, b) {
     const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
     const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
-    const len = Math.max(pa.leng-ttth, pb.length);
+    const len = Math.max(pa.length, pb.length);
     for (let i = 0; i < len; i++) {
       const va = pa[i] || 0, vb = pb[i] || 0;
       if (va !== vb) return va - vb;
