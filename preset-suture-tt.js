@@ -3,13 +3,13 @@
   // [HEADER] 实例管理 / 版本检测
   // ============================================================
   const WI_INSTANCE_ID = 'psychowi-preset-suture-tt';
-  const WI_VERSION = '1.0.1';
+  const WI_VERSION = '1.0.2';
   const __wiInstanceInfo = { id: WI_INSTANCE_ID, version: WI_VERSION, ts: Date.now(), kill: null };
 
   function __wiCompareVer(a, b) {
     const pa = String(a).split('.').map(n => parseInt(n, 10) || 0);
     const pb = String(b).split('.').map(n => parseInt(n, 10) || 0);
-    const len = Math.max(pa.length, pb.length);
+    const len = Math.max(pa.leng-ttth, pb.length);
     for (let i = 0; i < len; i++) {
       const va = pa[i] || 0, vb = pb[i] || 0;
       if (va !== vb) return va - vb;
@@ -3091,7 +3091,10 @@ ${blocks}
     flex-direction:column;overflow:hidden;box-shadow:var(--SmartThemeShadowColor, 0 12px 40px rgba(0,0,0,.5))">
 
       <div id="wi_ps_tab_bar" style="padding:0;border-bottom:1px solid var(--wi-border);background:var(--wi-bg-1);display:flex;gap:0;flex-shrink:0;align-items:center;cursor:default;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex-wrap:nowrap">
-        <span style="padding:0 10px 0 14px;font-size:12px;color:var(--wi-text-dim);font-weight:600;letter-spacing:0.5px;user-select:none;border-right:1px solid var(--wi-border);margin-right:4px;white-space:nowrap">psycho缝合</span>
+        <span id="wi_ps_version_badge" title="点击查看版本详情" style="padding:0 10px 0 14px;font-size:12px;color:var(--wi-text-dim);font-weight:600;letter-spacing:0.5px;user-select:none;border-right:1px solid var(--wi-border);margin-right:4px;white-space:nowrap;cursor:pointer">
+          psycho缝合
+          <span style="font-weight:400;font-size:10px;color:var(--wi-text-faint);margin-left:4px">${WI_INSTANCE_ID.includes('-tt') ? 'TT' : ''} v${WI_VERSION}</span>
+        </span>
         <div class="wi-ps-tab" data-tab="list" style="padding:10px 16px;cursor:pointer;font-size:12px;color:var(--wi-accent);border-bottom:2px solid var(--wi-accent);transition:all .15s;user-select:none;white-space:nowrap;flex-shrink:0">📋 预设列表</div>
         <div class="wi-ps-tab" data-tab="edit" style="padding:10px 16px;cursor:pointer;font-size:12px;color:var(--wi-text-dim);border-bottom:2px solid transparent;transition:all .15s;user-select:none;white-space:nowrap;flex-shrink:0">✏️ 条目编辑</div>
         <div class="wi-ps-tab" data-tab="suture" style="padding:10px 16px;cursor:pointer;font-size:12px;color:var(--wi-text-dim);border-bottom:2px solid transparent;transition:all .15s;user-select:none;white-space:nowrap;flex-shrink:0">🔗 缝合模式</div>
@@ -3196,6 +3199,22 @@ ${blocks}
       if (tab === 'suture') refreshSutureTab();
       if (tab === 'hotupdate') refreshHotUpdateTab();
       if (tab === 'backup') refreshBackupTab();
+    });
+
+    // ★ 版本徽章：点击查看详情
+    $('#wi_ps_version_badge').on('click', () => {
+      const envLabel = WI_INSTANCE_ID.includes('-tt') ? 'TauriTavern 特供版' : '通用版';
+      const ts = new Date(__wiInstanceInfo.ts);
+      const pad = n => String(n).padStart(2, '0');
+      const tsStr = `${ts.getFullYear()}-${pad(ts.getMonth() + 1)}-${pad(ts.getDate())} ${pad(ts.getHours())}:${pad(ts.getMinutes())}:${pad(ts.getSeconds())}`;
+      alert(
+        'psycho缝合\n\n' +
+        '版本：v' + WI_VERSION + '\n' +
+        '环境：' + envLabel + '\n' +
+        '实例 ID：' + WI_INSTANCE_ID + '\n' +
+        '加载时间：' + tsStr + '\n' +
+        '运行环境：' + (isTauriTavernEnv() ? 'TauriTavern' : '浏览器')
+      );
     });
 
     $('#wi_ps_close').on('click', () => $('#' + PANEL_ID).hide());
