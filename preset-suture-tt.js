@@ -3,7 +3,7 @@
   // [HEADER] 实例管理 / 版本检测
   // ============================================================
   const WI_INSTANCE_ID = 'psychowi-preset-suture-tt';
-  const WI_VERSION = '1.0.2';
+  const WI_VERSION = '1.0.5';
   const __wiInstanceInfo = { id: WI_INSTANCE_ID, version: WI_VERSION, ts: Date.now(), kill: null };
 
   function __wiCompareVer(a, b) {
@@ -117,7 +117,7 @@
   const err = (...args) => console.error('[psycho缝合]', ...args);
   const warn = (...args) => console.warn('[psycho缝合]', ...args);
 
-  function escapeHtml(s, maxLen = 800) {
+  function escapeHtml(s, maxLen = 999999) {
     let str = String(s ?? '');
     if (str.length > maxLen) str = str.slice(0, maxLen) + `\n…（已截断，原长 ${String(s ?? '').length} 字）`;
     return str.replace(/[&<>"']/g, c => ({
@@ -3715,7 +3715,7 @@ B. 给出修改方案：明确指出要改哪些条目（改内容）或新增�
               【${roundLabel}】${rIdx === 0 ? '首次诊断' : '追问'}
             </div>
             <div style="font-size:11px;color:var(--wi-text-dim);margin-bottom:6px;background:var(--wi-bg-0);padding:6px 8px;border-radius:4px;line-height:1.6">
-              <b style="color:var(--wi-text)">问题：</b>${escapeHtml(round.question && round.question.trim() ? round.question : '（整体体检）')}
+              <b style="color:var(--wi-text)">问题：</b>${escapeHtml(round.question && round.question.trim() ? round.question : '（整体体检）', 999999)}
               ${round.sample && round.sample.trim() ? `<details style="margin-top:4px"><summary style="cursor:pointer;color:var(--wi-text-faint)">查看实际输出样本</summary><div style="margin-top:4px;white-space:pre-wrap;color:var(--wi-text-dim);font-family:monospace;font-size:10px;max-height:120px;overflow-y:auto">${escapeHtml(round.sample.slice(0, 1000))}${round.sample.length > 1000 ? '\n…（截断）' : ''}</div></details>` : ''}
             </div>
           </div>
@@ -3726,7 +3726,7 @@ B. 给出修改方案：明确指出要改哪些条目（改内容）或新增�
           html += `
             <div style="background:var(--wi-bg-1);border:1px solid var(--wi-border);border-radius:6px;padding:12px;margin-bottom:10px;margin-left:10px">
               <div style="font-size:12px;color:var(--wi-warn);font-weight:600;margin-bottom:6px">📋 诊断分析</div>
-              <div style="font-size:12px;color:var(--wi-text);line-height:1.8;white-space:pre-wrap">${escapeHtml(round.diagnosis)}</div>
+              <div style="font-size:12px;color:var(--wi-text);line-height:1.8;white-space:pre-wrap">${escapeHtml(round.diagnosis, 999999)}</div>
             </div>
           `;
         } else if (round.changes.length === 0 && rIdx > 0) {
