@@ -3,7 +3,7 @@
   // [HEADER] 实例管理 / 版本检测
   // ============================================================
   const WI_INSTANCE_ID = 'psychowi-preset-suture-tt';
-  const WI_VERSION = '1.0.5';
+  const WI_VERSION = '1.0.6';
   const __wiInstanceInfo = { id: WI_INSTANCE_ID, version: WI_VERSION, ts: Date.now(), kill: null };
 
   function __wiCompareVer(a, b) {
@@ -2644,6 +2644,9 @@ ${blocks}
     sutureSourceGroups: [],
     sutureMarkSource: false,
     sutureSearch: '',
+    // ★ 分组缝合（新增）
+    sutureGroups: {},
+    sutureActiveGroup: '',
     // ★ 粘贴缝合模式（独立，不影响原有逻辑）
     tutorialText: '',
     tutorialSourceNames: [],
@@ -2821,6 +2824,7 @@ ${blocks}
     #wi_ps_batch_continue_mask,
     #wi_ps_batch_error_mask,
     #wi_ps_migrate_mask,
+    #wi_ps_pick_group_mask,
     #wi_ps_loading_mask {
       ${WI_THEMES[themeName]}
       --wi-theme-name: "${themeName}";
@@ -2907,6 +2911,7 @@ ${blocks}
     #wi_ps_batch_continue_mask,
     #wi_ps_batch_error_mask,
     #wi_ps_migrate_mask,
+    #wi_ps_pick_group_mask,
     #wi_ps_loading_mask {
       position: absolute !important;
       inset: 0 !important;
@@ -3098,6 +3103,7 @@ ${blocks}
         <div class="wi-ps-tab" data-tab="list" style="padding:10px 16px;cursor:pointer;font-size:12px;color:var(--wi-accent);border-bottom:2px solid var(--wi-accent);transition:all .15s;user-select:none;white-space:nowrap;flex-shrink:0">📋 预设列表</div>
         <div class="wi-ps-tab" data-tab="edit" style="padding:10px 16px;cursor:pointer;font-size:12px;color:var(--wi-text-dim);border-bottom:2px solid transparent;transition:all .15s;user-select:none;white-space:nowrap;flex-shrink:0">✏️ 条目编辑</div>
         <div class="wi-ps-tab" data-tab="suture" style="padding:10px 16px;cursor:pointer;font-size:12px;color:var(--wi-text-dim);border-bottom:2px solid transparent;transition:all .15s;user-select:none;white-space:nowrap;flex-shrink:0">🔗 缝合模式</div>
+        <div class="wi-ps-tab" data-tab="groups" style="padding:10px 16px;cursor:pointer;font-size:12px;color:var(--wi-text-dim);border-bottom:2px solid transparent;transition:all .15s;user-select:none;white-space:nowrap;flex-shrink:0">📦 分组</div>
         <div class="wi-ps-tab" data-tab="hotupdate" style="padding:10px 16px;cursor:pointer;font-size:12px;color:var(--wi-text-dim);border-bottom:2px solid transparent;transition:all .15s;user-select:none;white-space:nowrap;flex-shrink:0">🔄 热更新</div>
         <div class="wi-ps-tab" data-tab="backup" style="padding:10px 16px;cursor:pointer;font-size:12px;color:var(--wi-text-dim);border-bottom:2px solid transparent;transition:all .15s;user-select:none;white-space:nowrap;flex-shrink:0">💾 备份</div>
         <span style="flex:1"></span>
@@ -3152,6 +3158,10 @@ ${blocks}
         </div>
       </div>
 
+      <div id="wi_ps_tab_groups" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+        <div id="wi_ps_groups_content" style="flex:1;overflow-y:auto;padding:14px"></div>
+      </div>
+
       <div id="wi_ps_tab_hotupdate" style="display:none;flex-direction:column;flex:1;overflow:hidden">
         <div id="wi_ps_hotupdate_content" style="flex:1;overflow-y:auto;padding:14px">
           <div style="color:var(--wi-text-dim);text-align:center;padding:60px 20px;font-size:13px">
@@ -3197,6 +3207,7 @@ ${blocks}
       if (tab === 'list') refreshPresetList();
       if (tab === 'edit') refreshEditTab();
       if (tab === 'suture') refreshSutureTab();
+      if (tab === 'groups') refreshGroupsTab();
       if (tab === 'hotupdate') refreshHotUpdateTab();
       if (tab === 'backup') refreshBackupTab();
     });
@@ -4510,6 +4521,746 @@ B. 给出修改方案：明确指出要改哪些条目（改内容）或新增�
 
   function escapeRegExp(s) {
     return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // ============================================================
+  // [GROUPS] 分组缝合（新增）
+  // ============================================================
+  const SUTURE_GROUPS_KEY = 'wi_preset_suture_groups';
+
+  function loadSutureGroups() {
+    try {
+      const raw = localStorage.getItem(SUTURE_GROUPS_KEY);
+      if (!raw) return {};
+      const d = JSON.parse(raw);
+      if (!d || typeof d !== 'object') return {};
+      const out = {};
+      for (const k of Object.keys(d)) {
+        const g = d[k];
+        if (!g || typeof g !== 'object') continue;
+        if (!Array.isArray(g.entries)) continue;
+
+        let sources = [];
+        let entries = [];
+
+        if (Array.isArray(g.sources)) {
+          sources = g.sources
+            .filter(s => s && typeof s === 'object' && s.name)
+            .map(s => ({
+              type: s.type === 'worldbook' ? 'worldbook' : 'preset',
+              name: String(s.name),
+            }));
+        }
+
+        entries = g.entries
+          .map(x => {
+            if (typeof x === 'string') {
+              return { name: x, source: '', content: null, enabled: true };
+            }
+            if (!x || typeof x !== 'object') return null;
+            const nm = String(x.name || '');
+            if (!nm) return null;
+            return {
+              name: nm,
+              source: String(x.source || ''),
+              content: (typeof x.content === 'string') ? x.content : null,
+              enabled: x.enabled !== false,
+            };
+          })
+          .filter(Boolean);
+
+        if (sources.length === 0) {
+          const legacySrc = String(g.sourcePresetName || '');
+          const legacyType = g.sourceType === 'worldbook' ? 'worldbook' : 'preset';
+          if (legacySrc) sources = [{ type: legacyType, name: legacySrc }];
+        }
+        const defaultSrc = sources[0]?.name || String(g.sourcePresetName || '');
+        entries.forEach(e => {
+          if (!e.source && defaultSrc) e.source = defaultSrc;
+        });
+
+        const srcSet = new Map();
+        sources.forEach(s => srcSet.set(s.name, s));
+        entries.forEach(e => {
+          if (e.source && !srcSet.has(e.source)) {
+            srcSet.set(e.source, { type: 'preset', name: e.source });
+          }
+        });
+        sources = Array.from(srcSet.values());
+
+        out[k] = {
+          sources,
+          entries,
+          createdAt: g.createdAt || Date.now(),
+          updatedAt: g.updatedAt || g.createdAt || Date.now(),
+          sourcePresetName: sources.length === 1 ? sources[0].name : '',
+          sourceType: sources.length === 1 ? sources[0].type : 'preset',
+        };
+      }
+      return out;
+    } catch (e) {
+      console.warn('[缝合器][分组] 读取失败', e);
+      return {};
+    }
+  }
+
+  function saveSutureGroups(groups) {
+    try {
+      localStorage.setItem(SUTURE_GROUPS_KEY, JSON.stringify(groups || {}));
+      return true;
+    } catch (e) {
+      console.error('[缝合器][分组] 写入失败', e);
+      return false;
+    }
+  }
+
+  state.sutureGroups = loadSutureGroups();
+
+  // 存为分组（存快照：名字 + 来源 + 内容 + 启用状态）
+  function handleSaveAsGroup() {
+    const picked = Object.entries(state.suturePick).filter(([_, v]) => v.checked);
+    if (picked.length === 0) { alert('未勾选任何条目'); return; }
+    if (!state.sutureSource) { alert('请先选源预设'); return; }
+
+    const srcEntries = extractOrderedEntries(state.sutureSourcePreset);
+    const snapshots = [];
+    for (const e of srcEntries) {
+      if (!state.suturePick[e.identifier]?.checked) continue;
+      snapshots.push({
+        name: e.name,
+        source: state.sutureSource,
+        content: e.prompt.content || '',
+        enabled: e.enabled !== false,
+      });
+    }
+    if (snapshots.length === 0) { alert('未勾选任何条目'); return; }
+
+    const rawName = prompt('分组名：', state.sutureActiveGroup || '');
+    if (rawName === null) return;
+    const name = String(rawName).trim();
+    if (!name) { alert('分组名不能为空'); return; }
+
+    const exists = !!state.sutureGroups[name];
+    if (exists) {
+      if (!confirm(`分组「${name}」已存在，覆盖吗？`)) return;
+    }
+
+    const now = Date.now();
+    state.sutureGroups[name] = {
+      sources: [{ type: state.sutureSourceType, name: state.sutureSource }],
+      entries: snapshots,
+      createdAt: exists ? (state.sutureGroups[name].createdAt || now) : now,
+      updatedAt: now,
+      sourcePresetName: state.sutureSource,
+      sourceType: state.sutureSourceType,
+    };
+    if (!saveSutureGroups(state.sutureGroups)) { alert('保存失败（看 F12）'); return; }
+
+    if (window.toastr) window.toastr.success(`已保存分组「${name}」（${snapshots.length} 条，含内容快照）`);
+    renderSutureBody();
+  }
+
+  // 追加到分组（弹窗选择目标）
+  async function handleAppendToGroup() {
+    const picked = Object.entries(state.suturePick).filter(([_, v]) => v.checked);
+    if (picked.length === 0) { alert('未勾选任何条目'); return; }
+    if (!state.sutureSource) { alert('请先选源预设'); return; }
+
+    const allNames = Object.keys(state.sutureGroups || {});
+    if (allNames.length === 0) {
+      alert('还没有任何分组。请先用「💾 存为分组」新建一个。');
+      return;
+    }
+
+    const targetName = await showPickGroupDialog('追加到哪个分组？');
+    if (!targetName) return;
+
+    const g = state.sutureGroups[targetName];
+    if (!g) { alert(`找不到分组「${targetName}」`); return; }
+
+    const srcEntries = extractOrderedEntries(state.sutureSourcePreset);
+    const snapshots = [];
+    for (const e of srcEntries) {
+      if (!state.suturePick[e.identifier]?.checked) continue;
+      snapshots.push({
+        name: e.name,
+        source: state.sutureSource,
+        content: e.prompt.content || '',
+        enabled: e.enabled !== false,
+      });
+    }
+    if (snapshots.length === 0) { alert('未勾选任何条目'); return; }
+
+    const normEntries = (g.entries || []).map(x => {
+      if (typeof x === 'string') {
+        return { name: x, source: g.sourcePresetName || '', content: null, enabled: true };
+      }
+      return {
+        name: String(x.name || ''),
+        source: String(x.source || ''),
+        content: (typeof x.content === 'string') ? x.content : null,
+        enabled: x.enabled !== false,
+      };
+    }).filter(e => e.name);
+
+    const existing = new Set(normEntries.map(e => e.source + '::' + e.name));
+    const added = [];
+    snapshots.forEach(s => {
+      const key = s.source + '::' + s.name;
+      if (!existing.has(key)) {
+        normEntries.push(s);
+        existing.add(key);
+        added.push(s.name);
+      }
+    });
+
+    if (added.length === 0) {
+      alert(`分组「${targetName}」里已经有这些条目了（来自同一个源），没有新增。`);
+      return;
+    }
+
+    const srcSet = new Map();
+    (g.sources || []).forEach(s => { if (s && s.name) srcSet.set(s.name, s); });
+    if (!srcSet.has(state.sutureSource)) {
+      srcSet.set(state.sutureSource, { type: state.sutureSourceType, name: state.sutureSource });
+    }
+    normEntries.forEach(e => {
+      if (e.source && !srcSet.has(e.source)) {
+        srcSet.set(e.source, { type: 'preset', name: e.source });
+      }
+    });
+
+    g.sources = Array.from(srcSet.values());
+    g.entries = normEntries;
+    g.updatedAt = Date.now();
+    if (g.sources.length === 1) {
+      g.sourcePresetName = g.sources[0].name;
+      g.sourceType = g.sources[0].type;
+    } else {
+      g.sourcePresetName = '';
+    }
+
+    if (!saveSutureGroups(state.sutureGroups)) { alert('保存失败（看 F12）'); return; }
+
+    if (window.toastr) window.toastr.success(`已追加 ${added.length} 条到分组「${targetName}」（现有 ${g.entries.length} 条，含快照）`);
+    else alert(`已追加 ${added.length} 条到「${targetName}」`);
+  }
+
+  // 弹窗选择分组
+  function showPickGroupDialog(title) {
+    return new Promise((resolve) => {
+      const MASK_ID = 'wi_ps_pick_group_mask';
+      __wiRootDoc.querySelectorAll('#' + MASK_ID).forEach(el => el.remove());
+
+      const names = Object.keys(state.sutureGroups || {}).sort((a, b) => {
+        const ta = state.sutureGroups[a]?.updatedAt || 0;
+        const tb = state.sutureGroups[b]?.updatedAt || 0;
+        return tb - ta;
+      });
+
+      const $mask = $('<div id="' + MASK_ID + '">').css({
+        position: 'absolute', inset: 0, background: 'var(--wi-mask-strong)', zIndex: 1000060,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: '8px', boxSizing: 'border-box', overflowY: 'auto',
+      });
+      const $box = $('<div>').addClass('wi-ps-mobile-box').css({
+        background: 'var(--wi-box-bg)', border: '1px solid var(--wi-border)', borderRadius: '10px',
+        padding: '16px', width: '460px', maxWidth: '95vw', maxHeight: '80vh',
+        margin: 'auto',
+        display: 'flex', flexDirection: 'column',
+        color: 'var(--wi-text)', boxShadow: 'var(--SmartThemeShadowColor, 0 12px 40px rgba(0,0,0,.7))',
+      });
+
+      let html = `
+        <div style="font-size:14px;font-weight:700;color:var(--wi-accent-2);margin-bottom:10px;flex-shrink:0">${escapeHtml(title || '选择分组')}</div>
+        <div style="font-size:11px;color:var(--wi-text-dim);margin-bottom:10px;flex-shrink:0">点一行即选中。</div>
+        <div style="flex:1;overflow-y:auto;border:1px solid var(--wi-border-soft);border-radius:6px;min-height:100px">
+      `;
+
+      names.forEach(n => {
+        const g = state.sutureGroups[n];
+        const normEntries = (g.entries || []).map(x => {
+          if (typeof x === 'string') return { name: x, source: g.sourcePresetName || '' };
+          return { name: String(x.name || ''), source: String(x.source || '') };
+        }).filter(e => e.name);
+        const cnt = normEntries.length;
+        const sourceNames = Array.from(new Set(normEntries.map(e => e.source).filter(Boolean)));
+        let srcLabel = '?';
+        if (sourceNames.length === 1) srcLabel = sourceNames[0];
+        else if (sourceNames.length > 1) srcLabel = `🔀 多源（${sourceNames.length}）`;
+        const timeStr = g.updatedAt ? new Date(g.updatedAt).toLocaleString() : '';
+
+        html += `
+          <div class="wi-ps-pick-group-row" data-name="${escapeHtml(n)}" style="padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--wi-border-soft);background:var(--wi-bg-1)">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span style="font-size:12px;color:var(--wi-text);font-weight:600">${escapeHtml(n)}</span>
+              <span style="font-size:10px;color:var(--wi-accent);background:var(--wi-bg-2);padding:1px 6px;border-radius:3px">${cnt} 条</span>
+              <span style="font-size:10px;color:var(--wi-text-dim)">来自：${escapeHtml(srcLabel)}</span>
+            </div>
+            <div style="font-size:10px;color:var(--wi-text-faint);margin-top:4px">更新于 ${escapeHtml(timeStr)}</div>
+          </div>
+        `;
+      });
+
+      html += `
+        </div>
+        <div style="margin-top:12px;display:flex;justify-content:flex-end;flex-shrink:0">
+          <button id="wi_ps_pick_group_cancel" style="${BTN_CSS}">取消</button>
+        </div>
+      `;
+
+      $box.html(html);
+      $mask.append($box);
+      $('#' + PANEL_ID).append($mask);
+
+      $box.find('.wi-ps-pick-group-row').on('mouseenter', function () {
+        $(this).css('background', 'var(--wi-bg-2)');
+      }).on('mouseleave', function () {
+        $(this).css('background', 'var(--wi-bg-1)');
+      }).on('click', function () {
+        const n = $(this).attr('data-name');
+        $mask.remove();
+        resolve(n);
+      });
+
+      $box.find('#wi_ps_pick_group_cancel').on('click', () => {
+        $mask.remove();
+        resolve(null);
+      });
+
+      $mask.on('click', (ev) => {
+        if (ev.target === $mask[0]) {
+          $mask.remove();
+          resolve(null);
+        }
+      });
+    });
+  }
+
+  // 载入分组：有快照 → 直接用快照拼虚拟源；无快照 → 老逻辑读原预设
+  async function handleLoadGroupByName(name) {
+    if (!name || !state.sutureGroups[name]) { alert('分组不存在'); return; }
+    const g = state.sutureGroups[name];
+
+    const normEntries = (g.entries || []).map(x => {
+      if (typeof x === 'string') {
+        return { name: x, source: g.sourcePresetName || '', content: null, enabled: true };
+      }
+      return {
+        name: String(x.name || ''),
+        source: String(x.source || ''),
+        content: (typeof x.content === 'string') ? x.content : null,
+        enabled: x.enabled !== false,
+      };
+    }).filter(e => e.name);
+    if (normEntries.length === 0) { alert('分组是空的'); return; }
+
+    const hasSnapshots = normEntries.some(e => e.content !== null);
+
+    $('.wi-ps-tab[data-tab="suture"]').trigger('click');
+    await new Promise(r => setTimeout(r, 50));
+
+    const $srcType = $('#wi_ps_suture_source_type');
+    const $src = $('#wi_ps_suture_source_sel');
+
+    if (hasSnapshots) {
+      const allEntries = [];
+      const missing = [];
+
+      normEntries.forEach((e, i) => {
+        if (e.content === null) {
+          missing.push(e.name + '（这条没有内容快照，请重新存一次分组）');
+          return;
+        }
+        allEntries.push({
+          name: e.name,
+          content: e.content,
+          identifier: 'gsp_' + name + '__' + i,
+          enabled: e.enabled !== false,
+          _gSrcName: e.source || '',
+        });
+      });
+
+      if (allEntries.length === 0) {
+        alert('这个分组没有任何内容快照。请去「缝合模式」重新存一次分组（会升级成快照格式）。');
+        return;
+      }
+
+      const vp = {
+        prompts: allEntries.map(e => ({
+          identifier: e.identifier,
+          name: e.name,
+          content: e.content,
+          role: 'system',
+          enabled: e.enabled !== false,
+        })),
+        _isGroupVirtual: true,
+        _groupName: name,
+      };
+
+      state.sutureSourcePreset = vp;
+      state.sutureSourceType = 'preset';
+      state.sutureSource = '📦 ' + name + '（分组快照）';
+      state.suturePick = {};
+
+      if ($srcType.length) $srcType.val('preset');
+      if ($src.length) {
+        $src.empty();
+        const $opt = $('<option>')
+          .val(state.sutureSource)
+          .text(state.sutureSource)
+          .attr('data-imported', '1');
+        $src.prepend($opt);
+        state.presets.forEach(n => $src.append($('<option>').val(n).text(n)));
+        $src.val(state.sutureSource);
+      }
+
+      allEntries.forEach(e => {
+        state.suturePick[e.identifier] = { checked: true };
+      });
+
+      renderSutureBody();
+
+      const $st = $('#wi_ps_suture_status');
+      if (missing.length === 0) {
+        if ($st.length) $st.html(`✅ 已载入分组「${escapeHtml(name)}」，${allEntries.length} 条（快照）`).css('color', 'var(--wi-ok)');
+        if (window.toastr) window.toastr.success(`已载入分组「${name}」（${allEntries.length} 条快照）`);
+      } else {
+        const missStr = missing.map(n => escapeHtml(n)).join('、');
+        if ($st.length) $st.html(
+          `✅ 已载入 ${allEntries.length} 条（快照），⚠️ ${missing.length} 条没有快照：${missStr}`
+        ).css('color', 'var(--wi-warn)');
+        if (window.toastr) window.toastr.warning(`载入 ${allEntries.length} 条，${missing.length} 条无快照`);
+      }
+      return;
+    }
+
+    // 旧格式：读原预设
+    const sourceNames = new Set(normEntries.map(e => e.source).filter(Boolean));
+    const isMultiSource = sourceNames.size > 1;
+
+    if (isMultiSource) {
+      const allEntries = [];
+      const missing = [];
+
+      for (const srcName of sourceNames) {
+        const wantNames = normEntries.filter(e => e.source === srcName).map(e => e.name);
+        let loadedEntries = null;
+        let srcKind = 'preset';
+
+        const presetNames = getAllPresetNames();
+        if (presetNames.includes(srcName)) {
+          const p = readPreset(srcName);
+          if (p) {
+            loadedEntries = extractOrderedEntries(p).map(e => ({
+              name: e.name,
+              content: e.prompt.content || '',
+              identifier: e.identifier,
+              enabled: e.enabled !== false,
+            }));
+            srcKind = 'preset';
+          }
+        }
+        if (!loadedEntries) {
+          let wbNames = [];
+          try {
+            if (typeof getWorldbookNames === 'function') wbNames = getWorldbookNames() || [];
+          } catch (e) { }
+          if (wbNames.includes(srcName)) {
+            try {
+              const arr = await getWorldbook(srcName);
+              if (Array.isArray(arr)) {
+                loadedEntries = arr.map((e, i) => ({
+                  name: e.name || ('(未命名' + i + ')'),
+                  content: e.content || '',
+                  identifier: 'wb_' + (e.uid !== undefined ? e.uid : i),
+                  enabled: e.enabled !== false,
+                }));
+                srcKind = 'worldbook';
+              }
+            } catch (e) { }
+          }
+        }
+        if (!loadedEntries) {
+          wantNames.forEach(n => missing.push(n + '（源「' + srcName + '」不存在）'));
+          continue;
+        }
+
+        const byName = new Map();
+        loadedEntries.forEach(e => { if (!byName.has(e.name)) byName.set(e.name, e); });
+        wantNames.forEach(n => {
+          const e = byName.get(n);
+          if (e) {
+            allEntries.push({
+              ...e,
+              identifier: 'gsrc_' + srcName + '__' + e.identifier,
+            });
+          } else {
+            missing.push(n + '（在「' + srcName + '」里找不到）');
+          }
+        });
+      }
+
+      if (allEntries.length === 0) { alert('分组里所有条目的源都不存在，无法载入。'); return; }
+
+      const vp = {
+        prompts: allEntries.map(e => ({
+          identifier: e.identifier,
+          name: e.name,
+          content: e.content,
+          role: 'system',
+          enabled: e.enabled !== false,
+        })),
+        _isGroupVirtual: true,
+        _groupName: name,
+      };
+      state.sutureSourcePreset = vp;
+      state.sutureSourceType = 'preset';
+      state.sutureSource = '📦 ' + name + '（分组）';
+      state.suturePick = {};
+      if ($srcType.length) $srcType.val('preset');
+      if ($src.length) {
+        $src.empty();
+        const $opt = $('<option>').val(state.sutureSource).text(state.sutureSource).attr('data-imported', '1');
+        $src.prepend($opt);
+        state.presets.forEach(n => $src.append($('<option>').val(n).text(n)));
+        $src.val(state.sutureSource);
+      }
+      allEntries.forEach(e => { state.suturePick[e.identifier] = { checked: true }; });
+      renderSutureBody();
+
+      const $st = $('#wi_ps_suture_status');
+      if (missing.length === 0) {
+        if ($st.length) $st.html(`✅ 已载入多源分组「${escapeHtml(name)}」，${allEntries.length} 条（旧格式虚拟源）`).css('color', 'var(--wi-ok)');
+        if (window.toastr) window.toastr.success(`已载入多源分组「${name}」（${allEntries.length} 条）`);
+      } else {
+        const missStr = missing.map(n => escapeHtml(n)).join('、');
+        if ($st.length) $st.html(`✅ 已载入 ${allEntries.length} 条，⚠️ ${missing.length} 条找不到：${missStr}`).css('color', 'var(--wi-warn)');
+        if (window.toastr) window.toastr.warning(`载入 ${allEntries.length} 条，${missing.length} 条找不到`);
+      }
+      return;
+    }
+
+    // 单源旧格式
+    const theSrcName = Array.from(sourceNames)[0] || g.sourcePresetName || '';
+    if (!theSrcName) { alert('分组没记录源预设名，无法载入'); return; }
+
+    let theSrcType = 'preset';
+    if (Array.isArray(g.sources)) {
+      const s = g.sources.find(x => x && x.name === theSrcName);
+      if (s) theSrcType = s.type === 'worldbook' ? 'worldbook' : 'preset';
+    } else if (g.sourceType === 'worldbook') {
+      theSrcType = 'worldbook';
+    }
+
+    if (theSrcType === 'worldbook') {
+      let wbNames = [];
+      try { if (typeof getWorldbookNames === 'function') wbNames = getWorldbookNames() || []; } catch (e) { }
+      if (!wbNames.includes(theSrcName)) { alert(`源世界书「${theSrcName}」已不存在`); return; }
+    } else {
+      const presetNames = getAllPresetNames();
+      if (!presetNames.includes(theSrcName)) { alert(`源预设「${theSrcName}」已不存在`); return; }
+    }
+
+    state.sutureSourceType = theSrcType;
+    state.sutureSource = theSrcName;
+    state.suturePick = {};
+    if ($srcType.length) $srcType.val(state.sutureSourceType);
+    if ($src.length) {
+      $src.empty();
+      if (state.sutureSourceType === 'worldbook') {
+        let wbNames = [];
+        try { if (typeof getWorldbookNames === 'function') wbNames = getWorldbookNames() || []; } catch (e) { }
+        wbNames.forEach(n => $src.append($('<option>').val(n).text(n)));
+      } else {
+        state.presets.forEach(n => $src.append($('<option>').val(n).text(n)));
+      }
+      $src.val(state.sutureSource);
+    }
+
+    await loadSutureSource();
+
+    const srcEntries = extractOrderedEntries(state.sutureSourcePreset);
+    const nameToId = new Map();
+    srcEntries.forEach(e => { if (!nameToId.has(e.name)) nameToId.set(e.name, e.identifier); });
+
+    let matched = 0;
+    const missing = [];
+    normEntries.forEach(entry => {
+      const id = nameToId.get(entry.name);
+      if (id) { state.suturePick[id] = { checked: true }; matched++; }
+      else missing.push(entry.name);
+    });
+
+    renderSutureBody();
+
+    const $st = $('#wi_ps_suture_status');
+    if (missing.length === 0) {
+      if ($st.length) $st.html(`✅ 已载入分组「${escapeHtml(name)}」，勾选 ${matched} 条`).css('color', 'var(--wi-ok)');
+      if (window.toastr) window.toastr.success(`已载入分组「${name}」（${matched} 条）`);
+    } else {
+      const missStr = missing.map(n => escapeHtml(n)).join('、');
+      if ($st.length) $st.html(`✅ 已载入 ${matched} 条，⚠️ ${missing.length} 条找不到：${missStr}`).css('color', 'var(--wi-warn)');
+      if (window.toastr) window.toastr.warning(`载入 ${matched} 条，${missing.length} 条找不到`);
+    }
+  }
+
+  // 覆盖指定分组
+  function handleOverwriteGroupByName(name) {
+    if (!name || !state.sutureGroups[name]) { alert('分组不存在'); return; }
+
+    const picked = Object.entries(state.suturePick).filter(([_, v]) => v.checked);
+    if (picked.length === 0) { alert('未勾选任何条目（请先到「缝合模式」勾选后回来）'); return; }
+    if (!state.sutureSource) { alert('请先到「缝合模式」选源预设'); return; }
+
+    const srcEntries = extractOrderedEntries(state.sutureSourcePreset);
+    const snapshots = [];
+    for (const e of srcEntries) {
+      if (!state.suturePick[e.identifier]?.checked) continue;
+      snapshots.push({
+        name: e.name,
+        source: state.sutureSource,
+        content: e.prompt.content || '',
+        enabled: e.enabled !== false,
+      });
+    }
+    if (snapshots.length === 0) { alert('未勾选任何条目'); return; }
+
+    if (!confirm(`用当前勾选的 ${snapshots.length} 条覆盖分组「${name}」？\n（源预设会更新为「${state.sutureSource}」）`)) return;
+
+    state.sutureGroups[name] = {
+      sources: [{ type: state.sutureSourceType, name: state.sutureSource }],
+      entries: snapshots,
+      createdAt: state.sutureGroups[name].createdAt || Date.now(),
+      updatedAt: Date.now(),
+      sourcePresetName: state.sutureSource,
+      sourceType: state.sutureSourceType,
+    };
+    if (!saveSutureGroups(state.sutureGroups)) { alert('保存失败（看 F12）'); return; }
+
+    if (window.toastr) window.toastr.success(`已覆盖分组「${name}」（${snapshots.length} 条）`);
+    refreshGroupsTab();
+  }
+
+  // 删除分组
+  function handleDeleteGroupByName(name) {
+    if (!name || !state.sutureGroups[name]) { alert('分组不存在'); return; }
+    if (!confirm(`删除分组「${name}」？`)) return;
+    delete state.sutureGroups[name];
+    if (!saveSutureGroups(state.sutureGroups)) { alert('保存失败（看 F12）'); return; }
+    if (window.toastr) window.toastr.success(`已删除分组「${name}」`);
+    refreshGroupsTab();
+  }
+
+  // 重命名分组
+  function handleRenameGroup(oldName) {
+    if (!oldName || !state.sutureGroups[oldName]) { alert('分组不存在'); return; }
+    const raw = prompt('新名字：', oldName);
+    if (raw === null) return;
+    const newName = String(raw).trim();
+    if (!newName) { alert('名字不能为空'); return; }
+    if (newName === oldName) return;
+    if (state.sutureGroups[newName]) { alert('这个名字已被占用'); return; }
+    state.sutureGroups[newName] = { ...state.sutureGroups[oldName], updatedAt: Date.now() };
+    delete state.sutureGroups[oldName];
+    if (!saveSutureGroups(state.sutureGroups)) { alert('保存失败（看 F12）'); return; }
+    if (window.toastr) window.toastr.success(`已重命名为「${newName}」`);
+    refreshGroupsTab();
+  }
+
+  // 分组 tab
+  function refreshGroupsTab() {
+    renderGroupsUI();
+  }
+
+  function renderGroupsUI() {
+    const $container = $('#wi_ps_groups_content');
+    if (!$container.length) return;
+
+    const names = Object.keys(state.sutureGroups || {}).sort((a, b) => {
+      const ta = state.sutureGroups[a]?.updatedAt || 0;
+      const tb = state.sutureGroups[b]?.updatedAt || 0;
+      return tb - ta;
+    });
+
+    let html = `
+      <div style="font-size:15px;font-weight:700;color:var(--wi-accent-2);margin-bottom:10px">📦 条目分组</div>
+      <div style="background:var(--wi-bg-1);border:1px solid var(--wi-border);border-radius:6px;padding:10px;margin-bottom:14px;font-size:11px;color:var(--wi-text);line-height:1.7">
+        <b style="color:var(--wi-accent-2)">用法：</b>在「🔗 缝合模式」勾选源条目 → 点「💾 存为分组」→ 以后在这里点「载入」一键勾选。<br>
+        · 分组存的是<b>条目内容快照</b>（名字 + 来源 + 内容 + 启用状态），不依赖原预设<br>
+        · 载入时直接拼成虚拟源，原预设改名 / 删除 / 换设备都不影响<br>
+        · 同名条目按「来源 + 名字」去重
+      </div>
+    `;
+
+    if (names.length === 0) {
+      html += `<div style="color:var(--wi-text-dim);text-align:center;padding:40px;font-size:12px">还没有任何分组<br><span style="font-size:11px">去「🔗 缝合模式」勾选条目后点「💾 存为分组」</span></div>`;
+      $container.html(html);
+      return;
+    }
+
+    html += `<div style="border:1px solid var(--wi-border);border-radius:6px;overflow:hidden">`;
+    names.forEach(name => {
+      const g = state.sutureGroups[name];
+      const normEntries = (g.entries || []).map(x => {
+        if (typeof x === 'string') return { name: x, source: g.sourcePresetName || '' };
+        return { name: String(x.name || ''), source: String(x.source || '') };
+      }).filter(e => e.name);
+      const cnt = normEntries.length;
+      const sourceNames = Array.from(new Set(normEntries.map(e => e.source).filter(Boolean)));
+      let srcLabel;
+      if (sourceNames.length === 0) {
+        srcLabel = '?';
+      } else if (sourceNames.length === 1) {
+        let t = 'preset';
+        if (Array.isArray(g.sources)) {
+          const s = g.sources.find(x => x && x.name === sourceNames[0]);
+          if (s && s.type === 'worldbook') t = 'worldbook';
+        }
+        srcLabel = (t === 'worldbook' ? '📖 ' : '📋 ') + sourceNames[0];
+      } else {
+        srcLabel = `🔀 多源（${sourceNames.length} 个）：` + sourceNames.slice(0, 3).join('、') + (sourceNames.length > 3 ? '…' : '');
+      }
+      const preview = normEntries.slice(0, 5).map(n => escapeHtml(n.name)).join('、') + (cnt > 5 ? `…（共 ${cnt} 条）` : '');
+      const timeStr = g.updatedAt ? new Date(g.updatedAt).toLocaleString() : '';
+
+      html += `
+        <div class="wi-ps-group-row" data-name="${escapeHtml(name)}" style="padding:10px 12px;border-bottom:1px solid var(--wi-border-soft);background:var(--wi-bg-1)">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <span style="font-size:13px;color:var(--wi-text);font-weight:600">${escapeHtml(name)}</span>
+            <span style="font-size:10px;color:var(--wi-accent);background:var(--wi-bg-2);padding:1px 6px;border-radius:3px">${cnt} 条</span>
+            <span style="font-size:10px;color:var(--wi-text-dim)">来自：${escapeHtml(srcLabel)}</span>
+            <span style="flex:1"></span>
+            <button class="wi-ps-group-load" data-name="${escapeHtml(name)}" style="${BTN_PRIMARY_CSS}font-size:11px;padding:3px 12px">📥 载入</button>
+            <button class="wi-ps-group-overwrite" data-name="${escapeHtml(name)}" style="${BTN_CSS}font-size:11px;padding:3px 10px">✏️ 用当前勾选覆盖</button>
+            <button class="wi-ps-group-rename" data-name="${escapeHtml(name)}" style="${BTN_CSS}font-size:11px;padding:3px 10px">重命名</button>
+            <button class="wi-ps-group-delete" data-name="${escapeHtml(name)}" style="${BTN_CSS}font-size:11px;padding:3px 10px;color:var(--wi-err);border-color:var(--wi-err)">🗑 删除</button>
+          </div>
+          <div style="font-size:10px;color:var(--wi-text-dim);margin-top:5px;line-height:1.6">
+            ${preview}
+          </div>
+          <div style="font-size:10px;color:var(--wi-text-faint);margin-top:3px">
+            更新于 ${escapeHtml(timeStr)}
+          </div>
+        </div>
+      `;
+    });
+    html += `</div>`;
+
+    $container.html(html);
+
+    $container.find('.wi-ps-group-load').on('click', function () {
+      handleLoadGroupByName($(this).attr('data-name'));
+    });
+    $container.find('.wi-ps-group-overwrite').on('click', function () {
+      handleOverwriteGroupByName($(this).attr('data-name'));
+    });
+    $container.find('.wi-ps-group-rename').on('click', function () {
+      handleRenameGroup($(this).attr('data-name'));
+    });
+    $container.find('.wi-ps-group-delete').on('click', function () {
+      handleDeleteGroupByName($(this).attr('data-name'));
+    });
   }
 
   function findShiftedVarName(varName, occupiedVars) {
@@ -7146,6 +7897,8 @@ ${zoneList}
           <button id="wi_ps_suture_checkall" style="${BTN_CSS}font-size:11px">全选</button>
           <button id="wi_ps_suture_uncheckall" style="${BTN_CSS}font-size:11px">全不选</button>
           <button id="wi_ps_suture_reset_pick" style="${BTN_CSS}font-size:11px">清空</button>
+          <button id="wi_ps_suture_save_group" style="${BTN_PRIMARY_CSS}font-size:11px">💾 存为分组</button>
+          <button id="wi_ps_suture_append_group" style="${BTN_CSS}font-size:11px">➕ 追加到分组</button>
         </div>
       </div>
       <div id="wi_ps_suture_list" style="max-height:420px;overflow-y:auto;background:var(--wi-bg-0);border:1px solid var(--wi-border-soft);border-radius:6px;padding:6px">
@@ -7271,6 +8024,9 @@ ${zoneList}
     $('#wi_ps_opt_name_suffix').on('change', function () {
       state.sutureNameSuffix = $(this).is(':checked');
     });
+    // ★ 分组按钮（新增）
+    $('#wi_ps_suture_save_group').on('click', () => { handleSaveAsGroup(); });
+    $('#wi_ps_suture_append_group').on('click', () => { handleAppendToGroup(); });
     updateSutureStatus();
   }
 
@@ -9270,7 +10026,7 @@ ${zoneList}
   __wiInstanceInfo.kill = function __wiKillSelf() {
     try {
       log('正在清理实例 v' + WI_VERSION);
-      const sels = ['#' + BTN_ID, '#' + PANEL_ID, '#wi_ps_modal_mask', '#wi_ps_suture_done_mask'];
+      const sels = ['#' + BTN_ID, '#' + PANEL_ID, '#wi_ps_modal_mask', '#wi_ps_suture_done_mask', '#wi_ps_pick_group_mask'];
       sels.forEach(sel => {
         try { __wiRootDoc.querySelectorAll(sel).forEach(el => el.remove()); } catch (e) { }
       });
