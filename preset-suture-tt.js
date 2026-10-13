@@ -3,7 +3,7 @@
   // [HEADER] 实例管理 / 版本检测
   // ============================================================
   const WI_INSTANCE_ID = 'psychowi-preset-suture-tt';
-  const WI_VERSION = '1.0.7';
+  const WI_VERSION = '1.1.0';
   const __wiInstanceInfo = { id: WI_INSTANCE_ID, version: WI_VERSION, ts: Date.now(), kill: null };
 
   function __wiCompareVer(a, b) {
@@ -2507,15 +2507,25 @@ ${blocks}
       if (!ok) return false;
     }
 
-    // ★ 首选：酒馆本体 pm.savePreset（落盘最可靠，和 loadPreset 同源）
+    const isLegacy = !hasOrder;
+    if (isLegacy && typeof setPreset === 'function') {
+      // ★ legacy 预设：酒馆助手 setPreset 更稳（不会丢 id）
+      try {
+        await setPreset(name, data);
+        console.log('[缝合器][writePreset] ✅ legacy 预设，用 setPreset（酒馆助手）写入成功');
+        return true;
+      } catch (e) {
+        console.warn('[缝合器][writePreset] setPreset 失败，回退 pm.savePreset:', e);
+      }
+    }
+
     try {
-      const ST = window.SillyTavern || (__wiTopWin && __wiTopWin.SillyTavern) || {};
-      const ctx = ST.getContext && ST.getContext();
+      const ctx = (window.SillyTavern || (__wiTopWin && __wiTopWin.SillyTavern) || {}).getContext && (window.SillyTavern || __wiTopWin.SillyTavern).getContext();
       if (ctx) {
         const pm = ctx.getPresetManager && ctx.getPresetManager('openai');
         if (pm && typeof pm.savePreset === 'function') {
           await pm.savePreset(name, data);
-          console.log('[缝合器][writePreset] ✅ 用 pm.savePreset 写入成功（首选）');
+          console.log('[缝合器][writePreset] 用 pm.savePreset 写入成功');
           return true;
         }
       }
@@ -2523,16 +2533,14 @@ ${blocks}
       console.warn('[缝合器][writePreset] pm.savePreset 失败，回退 setPreset:', e);
     }
 
-    // ★ 兜底：酒馆助手 setPreset
     try {
       if (typeof setPreset === 'function') {
         await setPreset(name, data);
-        console.log('[缝合器][writePreset] ⚠️ 用 setPreset（酒馆助手）写入（兜底）');
+        console.log('[缝合器][writePreset] 用 setPreset（酒馆助手）写入');
         return true;
       }
       if (typeof replacePreset === 'function') {
         await replacePreset(name, data);
-        console.log('[缝合器][writePreset] ⚠️ 用 replacePreset 写入（兜底）');
         return true;
       }
     } catch (e) {
@@ -5665,15 +5673,6 @@ B. 给出修改方案：明确指出要改哪些条目（改内容）或新增�
   }
 
   function bindBackupEvents($container) {
-    // ★ 先清掉之前绑定的委托事件，避免重复触发（多次渲染导致累积）
-    $container.off('click', '.wi-bk-restore');
-    $container.off('click', '.wi-bk-delete');
-    $container.off('click', '.wi-bk-export-one');
-    $container.find('#wi_bk_manual').off('click');
-    $container.find('#wi_bk_export_all').off('click');
-    $container.find('#wi_bk_import').off('click');
-    $container.find('#wi_bk_cleanup').off('click');
-
     // 手动备份当前预设
     $container.find('#wi_bk_manual').on('click', async () => {
       const current = getCurrentPresetName();
@@ -9617,21 +9616,15 @@ ${zoneList}
       // ★ 写入完成 → 弹「撤销窗」
       showSutureDoneDialog(state.sutureTarget, targets.length, backupId);
 
-      // ★ 自动刷新预设：只在目标预设 = 当前使用中的预设时才重载
-      //   延迟 800ms，等写入彻底落盘、撤销窗先弹出来，避免前端重载打断/覆盖
+      // ★ 自动刷新预设：如果目标预设 = 当前正在用的预设，切 select 强制酒馆重载
       try {
         const currentName = getCurrentPresetName();
         console.log('[缝合器][写入] 当前预设 =', currentName, ' 目标预设 =', state.sutureTarget);
         if (currentName && currentName === state.sutureTarget) {
           if (typeof window.loadPreset === 'function') {
-            setTimeout(() => {
-              try {
-                console.log('[缝合器][写入] 延迟重载 window.loadPreset("' + currentName + '")');
-                window.loadPreset(currentName);
-              } catch (e2) {
-                console.warn('[缝合器][写入] 延迟重载失败（不影响写入）:', e2);
-              }
-            }, 800);
+            console.log('[缝合器][写入] 调用 window.loadPreset("' + currentName + '")');
+            const ok2 = window.loadPreset(currentName);
+            console.log('[缝合器][写入] loadPreset 返回:', ok2);
           } else {
             console.warn('[缝合器][写入] ⚠️ window.loadPreset 不存在，跳过刷新');
           }
